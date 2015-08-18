@@ -25,6 +25,7 @@ import com.sohu.jafka.server.ServerRegister;
 import com.sohu.jafka.server.TopicTask;
 import com.sohu.jafka.server.TopicTask.TaskType;
 import com.sohu.jafka.utils.Closer;
+import com.sohu.jafka.utils.ITask;
 import com.sohu.jafka.utils.IteratorTemplate;
 import com.sohu.jafka.utils.KV;
 import com.sohu.jafka.utils.Pool;
@@ -178,17 +179,8 @@ public class LogManager implements PartitionChooser, Closeable {
         /* Schedule the cleanup task to delete old logs */
         if (this.scheduler != null) {
             logger.debug("starting log cleaner every " + logCleanupIntervalMs + " ms");
-            this.scheduler.scheduleWithRate(new Runnable() {
-
-                public void run() {
-                    try {
-                        cleanupLogs();
-                    } catch (IOException e) {
-                        logger.error("cleanup log failed.", e);
-                    }
-                }
-
-            }, 60 * 1000, logCleanupIntervalMs);
+            final ITask task = this::cleanupLogs;
+            this.scheduler.scheduleWithRate(task, 60 * 1000, logCleanupIntervalMs);
         }
         //
         if (config.getEnableZookeeper()) {
