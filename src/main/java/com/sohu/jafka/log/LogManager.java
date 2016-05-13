@@ -24,26 +24,14 @@ import com.sohu.jafka.server.ServerConfig;
 import com.sohu.jafka.server.ServerRegister;
 import com.sohu.jafka.server.TopicTask;
 import com.sohu.jafka.server.TopicTask.TaskType;
-import com.sohu.jafka.utils.Closer;
-import com.sohu.jafka.utils.IteratorTemplate;
-import com.sohu.jafka.utils.KV;
-import com.sohu.jafka.utils.Pool;
-import com.sohu.jafka.utils.Scheduler;
-import com.sohu.jafka.utils.TopicNameValidator;
-import com.sohu.jafka.utils.Utils;
+import com.sohu.jafka.utils.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -58,54 +46,35 @@ import static java.lang.String.format;
 public class LogManager implements PartitionChooser, Closeable {
 
     final ServerConfig config;
-
-    private final Scheduler scheduler;
-
+    //执行清理日志的频率，一分钟执行一次
     final long logCleanupIntervalMs;
-
     final long logCleanupDefaultAgeMs;
-
     final boolean needRecovery;
-
-    private final Logger logger = LoggerFactory.getLogger(LogManager.class);
-
-    ///////////////////////////////////////////////////////////////////////
+    //the default number of log partitions per topic
     final int numPartitions;
-
     final File logDir;
-
+    //the number of messages accumulated on a log partition before messages are flushed to disk
     final int flushInterval;
-
-    private final Object logCreationLock = new Object();
-
     final Random random = new Random();
-
     final CountDownLatch startupLatch;
-
+    final Map<String, Integer> logFlushIntervalMap;
+    final Map<String, Long> logRetentionMSMap;
+    final int logRetentionSize;
+    private final Scheduler scheduler;
+    private final Logger logger = LoggerFactory.getLogger(LogManager.class);
+    private final Object logCreationLock = new Object();
     //
     private final Pool<String, Pool<Integer, Log>> logs = new Pool<String, Pool<Integer, Log>>();
-
     private final Scheduler logFlusherScheduler = new Scheduler(1, "jafka-logflusher-", false);
-
     //
     private final LinkedBlockingQueue<TopicTask> topicRegisterTasks = new LinkedBlockingQueue<TopicTask>();
-
+    private final Map<String, Integer> topicPartitionsMap;
+    //maximum size of message that the server can receive (default 1MB)
+    private final int maxMessageSize;
     private volatile boolean stopTopicRegisterTasks = false;
-
-    final Map<String, Integer> logFlushIntervalMap;
-
-    final Map<String, Long> logRetentionMSMap;
-
-    final int logRetentionSize;
-
     /////////////////////////////////////////////////////////////////////////
     private ServerRegister serverRegister;
-
-    private final Map<String, Integer> topicPartitionsMap;
-
     private RollingStrategy rollingStategy;
-
-    private final int maxMessageSize;
 
     public LogManager(ServerConfig config, //
                       Scheduler scheduler, //
@@ -212,14 +181,6 @@ public class LogManager implements PartitionChooser, Closeable {
             }
         }
         logger.debug("stop topic register task");
-    }
-
-    class TopicRegisterTask extends Thread {
-
-        @Override
-        public void run() {
-            registeredTaskLooply();
-        }
     }
 
     private Map<String, Long> getLogRetentionMSMap(Map<String, Integer> logRetentionHourMap) {
@@ -463,6 +424,7 @@ public class LogManager implements PartitionChooser, Closeable {
      * @throws IOException any IOException
      */
     public ILog getOrCreateLog(String topic, int partition) throws IOException {
+        //每个topic的partition数目
         final int configPartitionNumber = getPartition(topic);
         if (partition >= configPartitionNumber) {
             throw new IOException("partition is bigger than the number of configuration: " + configPartitionNumber);
@@ -591,6 +553,14 @@ public class LogManager implements PartitionChooser, Closeable {
 
     public Map<String, Integer> getTopicPartitionsMap() {
         return topicPartitionsMap;
+    }
+
+    class TopicRegisterTask extends Thread {
+
+        @Override
+        public void run() {
+            registeredTaskLooply();
+        }
     }
 
 }

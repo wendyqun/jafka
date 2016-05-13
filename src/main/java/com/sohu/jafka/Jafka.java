@@ -37,13 +37,26 @@ import java.util.Properties;
  */
 public class Jafka implements Closeable {
 
+    private final Logger logger = LoggerFactory.getLogger(Jafka.class);
     private volatile Thread shutdownHook;
-
     //for test privacy
     private ServerStartable serverStartable;
     // server listening port
     private int port = -1;
-    private final Logger logger = LoggerFactory.getLogger(Jafka.class);
+
+    public static void main(String[] args) {
+        int argsSize = args.length;
+        if (argsSize != 1 && argsSize != 3) {
+            System.out.println("USAGE: java [options] Jafka server.properties [consumer.properties producer.properties]");
+            System.exit(1);
+        }
+        //
+        Jafka jafka = new Jafka();
+        //args[0]=conf/server.properties.sample
+        jafka.start(args[0], argsSize > 1 ? args[1] : null, argsSize > 1 ? args[2] : null);
+        jafka.awaitShutdown();
+        jafka.close();
+    }
 
     public void start(String mainFileName, String consumerFile, String producerFile) {
         File mainFile = Utils.getCanonicalFile(new File(mainFileName));
@@ -69,7 +82,7 @@ public class Jafka implements Closeable {
         } else {
             serverStartable = new ServerStartable(config, consumerConfig, producerConfig);
         }
-        //
+        //钩子，server关闭时执行
         shutdownHook = new Thread() {
 
             @Override
@@ -120,18 +133,5 @@ public class Jafka implements Closeable {
         if (serverStartable != null) {
             serverStartable.flush();
         }
-    }
-
-    public static void main(String[] args) {
-        int argsSize = args.length;
-        if (argsSize != 1 && argsSize != 3) {
-            System.out.println("USAGE: java [options] Jafka server.properties [consumer.properties producer.properties]");
-            System.exit(1);
-        }
-        //
-        Jafka jafka = new Jafka();
-        jafka.start(args[0], argsSize > 1 ? args[1] : null, argsSize > 1 ? args[2] : null);
-        jafka.awaitShutdown();
-        jafka.close();
     }
 }

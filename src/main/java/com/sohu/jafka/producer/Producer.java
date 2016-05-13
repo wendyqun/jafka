@@ -53,24 +53,16 @@ import static com.sohu.jafka.utils.Closer.closeQuietly;
 @ClientSide
 public class Producer<K, V> implements Callback, IProducer<K, V> {
 
-    ProducerConfig config;
-
-    private Partitioner<K> partitioner;
-
-    ProducerPool<V> producerPool;
-
-    boolean populateProducerPool;
-
-    BrokerPartitionInfo brokerPartitionInfo;
-
     private final Logger logger = LoggerFactory.getLogger(Producer.class);
-
     /////////////////////////////////////////////////////////////////////////
     private final AtomicBoolean hasShutdown = new AtomicBoolean(false);
-
     private final Random random = new Random();
-
     private final boolean zkEnabled;
+    ProducerConfig config;
+    ProducerPool<V> producerPool;
+    boolean populateProducerPool;
+    BrokerPartitionInfo brokerPartitionInfo;
+    private Partitioner<K> partitioner;
     private Encoder<V> encoder;
 
     public Producer(ProducerConfig config, Partitioner<K> partitioner, ProducerPool<V> producerPool, boolean populateProducerPool,
@@ -226,7 +218,7 @@ public class Producer<K, V> implements Callback, IProducer<K, V> {
             logger.debug("Skipping the callback since populateProducerPool = false");
         }
     }
-
+    //虽然根据topic查询了对应的partition数目，但是发送给broker时还是把partition指定为-1
     private ProducerPoolData<V> create(ProducerData<K, V> pd) {
         Collection<Partition> topicPartitionsList = getPartitionListForTopic(pd);
         //FIXME: random Broker???

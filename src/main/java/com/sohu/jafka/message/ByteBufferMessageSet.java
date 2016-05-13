@@ -18,15 +18,15 @@
 package com.sohu.jafka.message;
 
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.GatheringByteChannel;
-import java.util.Iterator;
-
 import com.sohu.jafka.common.ErrorMapping;
 import com.sohu.jafka.common.InvalidMessageSizeException;
 import com.sohu.jafka.common.MessageSizeTooLargeException;
 import com.sohu.jafka.utils.IteratorTemplate;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.GatheringByteChannel;
+import java.util.Iterator;
 
 /**
  * A sequence of messages stored in a byte buffer
@@ -47,7 +47,7 @@ public class ByteBufferMessageSet extends MessageSet{
     private final ByteBuffer buffer;
     private final long initialOffset;
     private final ErrorMapping errorCode;
-    //
+    //浅byte的数目，相对于压缩情况来说的？
     private long shallowValidByteCount = -1L;
     //
     private long validBytes;
@@ -121,8 +121,37 @@ public class ByteBufferMessageSet extends MessageSet{
     public Iterator<MessageAndOffset> internalIterator(boolean isShallow){
         return new Iter(isShallow);
     }
+
+    @Override
+    public long writeTo(GatheringByteChannel channel, long offset, long maxSize) throws IOException {
+        buffer.mark();
+        int written = channel.write(buffer);
+        buffer.reset();
+        return written;
+    }
     
+    public long getSizeInBytes() {
+        return buffer.limit();
+    }
+
+    /**
+     * check max size of each message
+     * @param maxMessageSize the max size for each message
+     */
+    public void verifyMessageSize(int maxMessageSize) {
+       Iterator<MessageAndOffset> shallowIter =  internalIterator(true);
+       while(shallowIter.hasNext()) {
+           MessageAndOffset messageAndOffset = shallowIter.next();
+           //payloadSize 表示 除去头部 6 bytes 后的纯消息体的长度
+           int payloadSize = messageAndOffset.message.payloadSize();
+           if(payloadSize > maxMessageSize) {
+               throw new MessageSizeTooLargeException("payload size of " + payloadSize + " larger than " + maxMessageSize);
+           }
+       }
+    }
+
     class Iter extends IteratorTemplate<MessageAndOffset> {
+
 
         boolean isShallow;
         ByteBuffer topIter = buffer.slice();
@@ -132,7 +161,7 @@ public class ByteBufferMessageSet extends MessageSet{
         Iter(boolean isShallow) {
             this.isShallow = isShallow;
         }
-        
+
         private boolean innerDone() {
             return innerIter == null || !innerIter.hasNext();
         }
@@ -187,31 +216,6 @@ public class ByteBufferMessageSet extends MessageSet{
             return new MessageAndOffset(messageAndOffset.message, currValidBytes);
         }
 
-    }
-    
-    @Override
-    public long writeTo(GatheringByteChannel channel, long offset, long maxSize) throws IOException {
-        buffer.mark();
-        int written = channel.write(buffer);
-        buffer.reset();
-        return written;
-    }
-    public long getSizeInBytes() {
-        return buffer.limit();
-    }
-    /**
-     * check max size of each message
-     * @param maxMessageSize the max size for each message
-     */
-    public void verifyMessageSize(int maxMessageSize) {
-       Iterator<MessageAndOffset> shallowIter =  internalIterator(true);
-       while(shallowIter.hasNext()) {
-           MessageAndOffset messageAndOffset = shallowIter.next();
-           int payloadSize = messageAndOffset.message.payloadSize();
-           if(payloadSize > maxMessageSize) {
-               throw new MessageSizeTooLargeException("payload size of " + payloadSize + " larger than " + maxMessageSize);
-           }
-       }
     }
     
     

@@ -17,16 +17,6 @@
 
 package com.sohu.jafka.producer;
 
-import java.io.Closeable;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
-
 import com.sohu.jafka.api.ProducerRequest;
 import com.sohu.jafka.cluster.Broker;
 import com.sohu.jafka.cluster.Partition;
@@ -35,15 +25,16 @@ import com.sohu.jafka.common.UnavailableProducerException;
 import com.sohu.jafka.common.annotations.ClientSide;
 import com.sohu.jafka.message.ByteBufferMessageSet;
 import com.sohu.jafka.message.Message;
-import com.sohu.jafka.producer.async.AsyncProducer;
-import com.sohu.jafka.producer.async.AsyncProducerConfig;
-import com.sohu.jafka.producer.async.CallbackHandler;
-import com.sohu.jafka.producer.async.DefaultEventHandler;
-import com.sohu.jafka.producer.async.EventHandler;
+import com.sohu.jafka.producer.async.*;
 import com.sohu.jafka.producer.serializer.Encoder;
 import com.sohu.jafka.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.Closeable;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * @author adyliu (imxylz@gmail.com)
@@ -63,10 +54,8 @@ public class ProducerPool<V> implements Closeable {
     private final EventHandler<V> eventHandler;
 
     private final CallbackHandler<V> callbackHandler;
-
-    private boolean sync = true;
-
     private final Logger logger = LoggerFactory.getLogger(ProducerPool.class);
+    private boolean sync = true;
 
     public ProducerPool(ProducerConfig config,//
             Encoder<V> serializer, //
@@ -158,6 +147,7 @@ public class ProducerPool<V> implements Closeable {
             ByteBufferMessageSet bbms = new ByteBufferMessageSet(config.getCompressionCodec(), messages);
             ProducerRequest request = new ProducerRequest(ppd.topic, ppd.partition.partId, bbms);
             SyncProducer producer = syncProducers.get(ppd.partition.brokerId);
+            System.out.println(producer);
             if (producer == null) {
                 throw new UnavailableProducerException("Producer pool has not been initialized correctly. " + "Sync Producer for broker "
                         + ppd.partition.brokerId + " does not exist in the pool");

@@ -29,4 +29,8 @@ public class TopicNameValidator {
         }
     }
 
+    public static void main(String  [] args){
+       TopicNameValidator.validate("...");
+    }
+
 }

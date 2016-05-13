@@ -46,7 +46,7 @@ public abstract class BaseJafkaServer {
             mainProperties.setProperty("brokerid", "0");
         }
         if (!mainProperties.containsKey("log.dir")) {
-            mainProperties.setProperty("log.dir", DataLogCleaner.defaultDataLogPath);
+            mainProperties.setProperty("log.dir", /*DataLogCleaner.defaultDataLogPath*/"\\tmp\\jafka-data");
         }
         if(!mainProperties.containsKey("port")){
             mainProperties.setProperty("port",""+PortUtils.checkAvailablePort(9092));

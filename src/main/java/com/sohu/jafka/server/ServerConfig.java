@@ -33,6 +33,8 @@ import static com.sohu.jafka.utils.Utils.*;
  *
  * @author adyliu (imxylz@gmail.com)
  * @since 1.0
+ *
+ * conf/server.properties.sample 文件的内存表示
  */
 public class ServerConfig extends ZKConfig {
 

@@ -34,12 +34,10 @@ import com.sohu.jafka.utils.Utils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import sun.net.www.http.HttpClient;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Arrays;
@@ -48,9 +46,7 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 /**
  * @author adyliu (imxylz@gmail.com)
@@ -58,17 +54,14 @@ import static org.junit.Assert.assertTrue;
  */
 public class SimpleConsumerTest extends BaseJafkaServer {
 
-    Jafka jafka;
-
-    SimpleConsumer consumer;
-
-    public SimpleConsumerTest() {
-    }
-
-    final int partitions = 3;
+    final int partitions = 2;
     final int INIT_MESSAGE_COUNT = 755;
     final int MESSAGE_BATCH_SIZE = 50;
     final int httpPort = PortUtils.checkAvailablePort(9093);
+    Jafka jafka;
+    SimpleConsumer consumer;
+    public SimpleConsumerTest() {
+    }
 
     @Before
     public void init() throws IOException{
@@ -82,15 +75,15 @@ public class SimpleConsumerTest extends BaseJafkaServer {
             props.put("log.file.size", "5120");//5k for rolling
             props.put("num.partitions", "" + partitions);//default divided three partitions
             props.put("http.port",""+httpPort);
-            jafka = createJafka(props);
-            sendSomeMessages(INIT_MESSAGE_COUNT, "demo", "test");
+            //jafka = createJafka(props);
+            //sendSomeMessages(INIT_MESSAGE_COUNT, "demo", "test");
 
             LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(1));//waiting to receive all message
-            flush(jafka);//force flush all logs to the disk
+            //flush(jafka);//force flush all logs to the disk
             LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(1));
         }
         if (consumer == null) {
-            consumer = new SimpleConsumer("localhost", jafka.getPort(), 10 * 1000, 1024 * 1024);
+            consumer = new SimpleConsumer("localhost", /*jafka.getPort()*/9092, 10 * 1000, 1024 * 1024);
         }
     }
 

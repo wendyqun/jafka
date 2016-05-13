@@ -43,29 +43,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class Server implements Closeable {
 
     final String CLEAN_SHUTDOWN_FILE = ".jafka_cleanshutdown";
-
-    final private Logger logger = LoggerFactory.getLogger(Server.class);
-
     final ServerConfig config;
-
     final Scheduler scheduler = new Scheduler(1, "jafka-logcleaner-", false);
-
-    private LogManager logManager;
-
-    private final CountDownLatch shutdownLatch = new CountDownLatch(1);
-
     final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
-
+    final private Logger logger = LoggerFactory.getLogger(Server.class);
+    private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+    private final File logDir;
+    private final ServerInfo serverInfo = new ServerInfo();
+    private LogManager logManager;
     private SocketServer socketServer;
     private HttpServer httpServer;
-
-    private final File logDir;
-
-    private final ServerInfo serverInfo = new ServerInfo();
 
     //
     public Server(ServerConfig config) {
         this.config = config;
+        //the default dir: /tmp/jafka-data
         logDir = new File(config.getLogDir());
         if (!logDir.exists()) {
             logDir.mkdirs();
@@ -85,9 +77,12 @@ public class Server implements Closeable {
             }
             this.logManager = new LogManager(config,//
                     scheduler,//
+                    //执行清理日志的频率，一分钟执行一次
                     1000L * 60 * config.getLogCleanupIntervalMinutes(),//
+                    //日志文件保留多久 配置文件是7天
                     1000L * 60 * 60 * config.getLogRetentionHours(),//
                     needRecovery);
+            //设置rolling file策略，默认按照文件大小
             this.logManager.setRollingStategy(config.getRollingStrategy());
             logManager.load();
 

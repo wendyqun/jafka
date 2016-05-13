@@ -52,12 +52,9 @@ public class SyncProducer implements Closeable {
     private final BlockingChannel blockingChannel;
 
     private final Object lock = new Object();
-
-    private volatile boolean shutdown = false;
-
     private final String host;
-
     private final int port;
+    private volatile boolean shutdown = false;
 
     public SyncProducer(SyncProducerConfig config) {
         super();
@@ -82,8 +79,10 @@ public class SyncProducer implements Closeable {
             long startTime = System.nanoTime();
             int written = -1;
             try {
+                System.out.println("thread "+Thread.currentThread().getId()+" sleep");
+                Thread.sleep(10000);
                 written = connect().send(request);
-            } catch (IOException e) {
+            } catch (Exception e) {
                 // no way to tell if write succeeded. Disconnect and re-throw exception to let client handle retry
                 disconnect();
                 throw new RuntimeException(e);

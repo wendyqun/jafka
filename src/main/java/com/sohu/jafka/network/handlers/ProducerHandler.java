@@ -17,8 +17,6 @@
 
 package com.sohu.jafka.network.handlers;
 
-import static java.lang.String.format;
-
 import com.sohu.jafka.api.ProducerRequest;
 import com.sohu.jafka.api.RequestKeys;
 import com.sohu.jafka.log.ILog;
@@ -27,6 +25,8 @@ import com.sohu.jafka.message.MessageAndOffset;
 import com.sohu.jafka.mx.BrokerTopicStat;
 import com.sohu.jafka.network.Receive;
 import com.sohu.jafka.network.Send;
+
+import static java.lang.String.format;
 
 /**
  * handler for producer request
