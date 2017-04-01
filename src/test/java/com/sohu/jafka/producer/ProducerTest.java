@@ -17,13 +17,12 @@
 
 package com.sohu.jafka.producer;
 
-import java.util.Properties;
-
-import org.junit.Test;
-
 import com.sohu.jafka.BaseJafkaServer;
 import com.sohu.jafka.Jafka;
 import com.sohu.jafka.producer.serializer.StringEncoder;
+import org.junit.Test;
+
+import java.util.Properties;
 
 /**
  * @author adyliu (imxylz@gmail.com)
@@ -73,5 +72,25 @@ public class ProducerTest extends BaseJafkaServer {
         producer.close();
         ////////////////////////////////////////////////
         close(jafka);
+    }
+
+
+    @Test
+    public void testSendWithZk() throws Exception{
+        Properties props = new Properties();
+        props.setProperty("zk.connect", "192.168.157.128:2181");
+        props.put("serializer.class", StringEncoder.class.getName());
+        ProducerConfig config = new ProducerConfig(props);
+        Producer<String, String> producer = new Producer<String, String>(config);
+        StringProducerData data= new StringProducerData("testtopic");
+        int i=0;
+        while(true){
+            String message = "Hello jafka. #"+i++;
+            data.setKey(message);
+            data.add(message).add("https://github.com/adyliu/jafka");
+            producer.send(data);
+            Thread.sleep(5000);
+        }
+
     }
 }

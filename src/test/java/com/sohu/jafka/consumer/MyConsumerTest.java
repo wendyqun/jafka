@@ -16,7 +16,7 @@ public class MyConsumerTest {
     public void consumer() throws IOException {
         //SimpleConsumer consumer = new SimpleConsumer("192.168.157.128", 9092);
         SimpleConsumer consumer = new SimpleConsumer("127.0.0.1", 9092);
-        long offset = 34;
+        long offset = 240;
         while (true) {
             FetchRequest request = new FetchRequest("demo", 0, offset);
             for (MessageAndOffset msg : consumer.fetch(request)) {

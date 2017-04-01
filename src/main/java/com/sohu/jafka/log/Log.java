@@ -17,7 +17,17 @@
 
 package com.sohu.jafka.log;
 
-import static java.lang.String.format;
+import com.sohu.jafka.api.OffsetRequest;
+import com.sohu.jafka.common.InvalidMessageSizeException;
+import com.sohu.jafka.common.OffsetOutOfRangeException;
+import com.sohu.jafka.message.*;
+import com.sohu.jafka.mx.BrokerTopicStat;
+import com.sohu.jafka.mx.LogStats;
+import com.sohu.jafka.utils.KV;
+import com.sohu.jafka.utils.Range;
+import com.sohu.jafka.utils.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -33,22 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-
-import com.sohu.jafka.api.OffsetRequest;
-import com.sohu.jafka.common.InvalidMessageSizeException;
-import com.sohu.jafka.common.OffsetOutOfRangeException;
-import com.sohu.jafka.message.ByteBufferMessageSet;
-import com.sohu.jafka.message.FileMessageSet;
-import com.sohu.jafka.message.InvalidMessageException;
-import com.sohu.jafka.message.MessageAndOffset;
-import com.sohu.jafka.message.MessageSet;
-import com.sohu.jafka.mx.BrokerTopicStat;
-import com.sohu.jafka.mx.LogStats;
-import com.sohu.jafka.utils.KV;
-import com.sohu.jafka.utils.Range;
-import com.sohu.jafka.utils.Utils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static java.lang.String.format;
 
 /**
  * a log is message sets with more than one files.
@@ -58,32 +53,21 @@ import org.slf4j.LoggerFactory;
  */
 public class Log implements ILog {
 
-    private final Logger logger = LoggerFactory.getLogger(Log.class);
-
     private static final String FileSuffix = ".jafka";
-
     public final File dir;
-
-    private final RollingStrategy rollingStategy;
-
+    public final String name;
+    public final int partition;
     final int flushInterval;
 
     final boolean needRecovery;
-
+    private final Logger logger = LoggerFactory.getLogger(Log.class);
+    private final RollingStrategy rollingStategy;
     ///////////////////////////////////////////////////////////////////////
     private final Object lock = new Object();
-
     private final AtomicInteger unflushed = new AtomicInteger(0);
-
     private final AtomicLong lastflushedTime = new AtomicLong(System.currentTimeMillis());
-
-    public final String name;
-
     private final LogStats logStats = new LogStats(this);
-
     private final SegmentList segments;
-
-    public final int partition;
     private final int maxMessageSize;
 
     public Log(File dir, //
@@ -103,6 +87,58 @@ public class Log implements ILog {
         this.logStats.setMbeanName("jafka:type=jafka.logs." + name);
         Utils.registerMBean(logStats);
         segments = loadSegments();
+    }
+
+    /**
+     * Find a given range object in a list of ranges by a value in that range. Does a binary
+     * search over the ranges but instead of checking for equality looks within the range.
+     * Takes the array size as an option in case the array grows while searching happens
+     *
+     * TODO: This should move into SegmentList.scala
+     */
+    public static <T extends Range> T findRange(List<T> ranges, long value, int arraySize) {
+        if (ranges.size() < 1) return null;
+        T first = ranges.get(0);
+        T last = ranges.get(arraySize - 1);
+        // check out of bounds
+        if (value < first.start() || value > last.start() + last.size()) {
+            throw new OffsetOutOfRangeException(format("offset %s is out of range (%s, %s)",//
+                    value,first.start(),last.start()+last.size()));
+        }
+
+        // check at the end
+        if (value == last.start() + last.size()) return null;
+
+        int low = 0;
+        int high = arraySize - 1;
+        while (low <= high) {
+            int mid = (high + low) / 2;
+            T found = ranges.get(mid);
+            if (found.contains(value)) {
+                return found;
+            } else if (value < found.start()) {
+                high = mid - 1;
+            } else {
+                low = mid + 1;
+            }
+        }
+        return null;
+    }
+
+    public static <T extends Range> T findRange(List<T> ranges, long value) {
+        return findRange(ranges, value, ranges.size());
+    }
+
+    /**
+     * Make log segment file name from offset bytes. All this does is pad out the offset number
+     * with zeros so that ls sorts the files numerically
+     */
+    public static String nameFromOffset(long offset) {
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setMinimumIntegerDigits(20);
+        nf.setMaximumFractionDigits(0);
+        nf.setGroupingUsed(false);
+        return nf.format(offset) + Log.FileSuffix;
     }
 
     private SegmentList loadSegments() throws IOException {
@@ -144,7 +180,7 @@ public class Log implements ILog {
         accum.add(mutable);
         return new SegmentList(name, accum);
     }
-
+    
     /**
      * Check that the ranges and sizes add up, otherwise we have lost some data somewhere
      */
@@ -164,6 +200,7 @@ public class Log implements ILog {
     public int getNumberOfSegments() {
         return segments.getView().size();
     }
+
     /**
      * delete all log segments in this topic-partition
      * <p>
@@ -176,7 +213,7 @@ public class Log implements ILog {
        Utils.deleteDirectory(dir);
        return count;
     }
-    
+
     public void close() {
         synchronized (lock) {
             for (LogSegment seg : segments.getView()) {
@@ -193,7 +230,7 @@ public class Log implements ILog {
 
     /**
      * read messages beginning from offset
-     * 
+     *
      * @param offset next message offset
      * @param length the max package size
      * @return a MessageSet object with length data or empty
@@ -209,6 +246,7 @@ public class Log implements ILog {
             }
             return MessageSet.Empty;
         }
+        //offset - found.start() 表示找到该文件的起始读取位置
         return found.getMessageSet().read(offset - found.start(), length);
     }
 
@@ -260,7 +298,7 @@ public class Log implements ILog {
 
     /**
      * check the log whether needing rolling
-     * 
+     *
      * @param lastSegment the last file segment
      * @throws IOException any file operation exception
      */
@@ -287,6 +325,7 @@ public class Log implements ILog {
         }
     }
 
+    ///////////////////////////////////////////////////////////////////////
 
     private long nextAppendOffset() throws IOException {
         flush();
@@ -302,7 +341,7 @@ public class Log implements ILog {
 
     /**
      * Flush this log file to the physical disk
-     * 
+     *
      * @throws IOException
      */
     public void flush() throws IOException {
@@ -317,59 +356,6 @@ public class Log implements ILog {
             unflushed.set(0);
             lastflushedTime.set(System.currentTimeMillis());
         }
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    /**
-     * Find a given range object in a list of ranges by a value in that range. Does a binary
-     * search over the ranges but instead of checking for equality looks within the range.
-     * Takes the array size as an option in case the array grows while searching happens
-     * 
-     * TODO: This should move into SegmentList.scala
-     */
-    public static <T extends Range> T findRange(List<T> ranges, long value, int arraySize) {
-        if (ranges.size() < 1) return null;
-        T first = ranges.get(0);
-        T last = ranges.get(arraySize - 1);
-        // check out of bounds
-        if (value < first.start() || value > last.start() + last.size()) {
-            throw new OffsetOutOfRangeException(format("offset %s is out of range (%s, %s)",//
-                    value,first.start(),last.start()+last.size()));
-        }
-
-        // check at the end
-        if (value == last.start() + last.size()) return null;
-
-        int low = 0;
-        int high = arraySize - 1;
-        while (low <= high) {
-            int mid = (high + low) / 2;
-            T found = ranges.get(mid);
-            if (found.contains(value)) {
-                return found;
-            } else if (value < found.start()) {
-                high = mid - 1;
-            } else {
-                low = mid + 1;
-            }
-        }
-        return null;
-    }
-
-    public static <T extends Range> T findRange(List<T> ranges, long value) {
-        return findRange(ranges, value, ranges.size());
-    }
-
-    /**
-     * Make log segment file name from offset bytes. All this does is pad out the offset number
-     * with zeros so that ls sorts the files numerically
-     */
-    public static String nameFromOffset(long offset) {
-        NumberFormat nf = NumberFormat.getInstance();
-        nf.setMinimumIntegerDigits(20);
-        nf.setMaximumFractionDigits(0);
-        nf.setGroupingUsed(false);
-        return nf.format(offset) + Log.FileSuffix;
     }
 
     public String getTopicName() {

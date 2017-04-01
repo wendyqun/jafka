@@ -23,9 +23,9 @@ public class MyProducerTest {
         try {
             long start = System.currentTimeMillis();
             //
-            StringProducerData data = new StringProducerData("demo");
-            for(int  i=0;i<2;i++){
-                data.add("2016年10月16日11:54:132016年10月16日11:54:1532016年10月16日11:48:42");
+            StringProducerData data = new StringProducerData("lgq");
+            for(int  i=0;i<12;i++){
+                data.add("0123456789");
             }
             producer.send(data);
             producer.close();
