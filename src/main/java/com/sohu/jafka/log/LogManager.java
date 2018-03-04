@@ -432,6 +432,7 @@ public class LogManager implements PartitionChooser, Closeable {
         boolean hasNewTopic = false;
         Pool<Integer, Log> parts = getLogPool(topic, partition);
         if (parts == null) {
+            //这里防止多线程环境下重复创建相同的Log
             Pool<Integer, Log> found = logs.putIfNotExists(topic, new Pool<Integer, Log>());
             if (found == null) {
                 hasNewTopic = true;
@@ -450,6 +451,7 @@ public class LogManager implements PartitionChooser, Closeable {
                 logger.info(format("Created log for [%s-%d], now create other logs if necessary", topic, partition));
                 final int configPartitions = getPartition(topic);
                 for (int i = 0; i < configPartitions; i++) {
+                    //递归调用
                     getOrCreateLog(topic, i);
                 }
             }

@@ -78,18 +78,22 @@ public class ProducerTest extends BaseJafkaServer {
     @Test
     public void testSendWithZk() throws Exception{
         Properties props = new Properties();
-        props.setProperty("zk.connect", "192.168.157.128:2181");
+        props.put("zk.connect", "192.168.157.128:2181");//本地虚拟机
+        props.put("zk.sessiontimeout.ms", "30000");//
+        props.put("zk.connectiontimeout.ms", "30000");//
         props.put("serializer.class", StringEncoder.class.getName());
         ProducerConfig config = new ProducerConfig(props);
         Producer<String, String> producer = new Producer<String, String>(config);
-        StringProducerData data= new StringProducerData("testtopic");
+        StringProducerData data1= new StringProducerData("topic1");
+        StringProducerData data2= new StringProducerData("topic2");
         int i=0;
         while(true){
             String message = "Hello jafka. #"+i++;
-            data.setKey(message);
-            data.add(message).add("https://github.com/adyliu/jafka");
-            producer.send(data);
-            Thread.sleep(5000);
+            data1.add(message+" topic1");
+            producer.send(data1);
+            data2.add(message+" topic2");
+            producer.send(data2);
+            Thread.sleep(1000);
         }
 
     }

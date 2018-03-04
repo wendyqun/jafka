@@ -136,28 +136,17 @@ import static java.lang.String.format;
 public class ZookeeperConsumerConnector implements ConsumerConnector {
 
     public static final FetchedDataChunk SHUTDOWN_COMMAND = new FetchedDataChunk(null, null, -1);
-
+    final ConsumerConfig config;
+    final boolean enableFetcher;
     private final Logger logger = LoggerFactory.getLogger(ZookeeperConsumerConnector.class);
-
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
-
     private final Object rebalanceLock = new Object();
-
-    private Fetcher fetcher;
-
-    private ZkClient zkClient;
-
-    private Pool<String, Pool<Partition, PartitionTopicInfo>> topicRegistry;
-
     //
     private final Pool<StringTuple, BlockingQueue<FetchedDataChunk>> queues;
-
     private final Scheduler scheduler = new Scheduler(1, "consumer-autocommit-", false);
-
-    final ConsumerConfig config;
-
-    final boolean enableFetcher;
-
+    private Fetcher fetcher;
+    private ZkClient zkClient;
+    private Pool<String, Pool<Partition, PartitionTopicInfo>> topicRegistry;
     //cache for shutdown
     private List<ZKRebalancerListener<?>> rebalancerListeners = new ArrayList<ZKRebalancerListener<?>>();
 
@@ -190,28 +179,25 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
         }
     }
 
-    class AutoCommitTask implements Runnable {
-
-        public void run() {
-            try {
-                commitOffsets();
-            } catch (Throwable e) {
-                logger.error("exception during autoCommit: ", e);
-            }
-        }
-    }
-
     public <T> Map<String, List<MessageStream<T>>> createMessageStreams(Map<String, Integer> topicCountMap,
                                                                         Decoder<T> decoder) {
         return consume(topicCountMap, decoder);
     }
 
+    /**
+     *
+     * @param topicCountMap topic 与消费者线程数 {"mytopic":1}
+     * @param decoder
+     * @param <T>
+     * @return Map key为topic，value为MessageStream列表
+     */
     private <T> Map<String, List<MessageStream<T>>> consume(Map<String, Integer> topicCountMap, Decoder<T> decoder) {
         if (topicCountMap == null) {
             throw new IllegalArgumentException("topicCountMap is null");
         }
         //
         ZkGroupDirs dirs = new ZkGroupDirs(config.getGroupId());
+        //返回结果
         Map<String, List<MessageStream<T>>> ret = new HashMap<String, List<MessageStream<T>>>();
         String consumerUuid = config.getConsumerId();
         if (consumerUuid == null) {
@@ -223,6 +209,8 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
         //consumerIdString => groupid_consumerid
         final String consumerIdString = config.getGroupId() + "_" + consumerUuid;
         final TopicCount topicCount = new TopicCount(consumerIdString, topicCountMap);
+        //该for循环，针对每一个topic，创建指定数目的线程名称，并为每一个线程名称指定以一个LinkedBlockingQueue
+        //然后用该queue构造MessageStream对象
         for (Map.Entry<String, Set<String>> e : topicCount.getConsumerThreadIdsPerTopic().entrySet()) {
             final String topic = e.getKey();
             final Set<String> threadIdSet = e.getValue();
@@ -236,12 +224,13 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
             ret.put(topic, streamList);
             logger.debug("adding topic " + topic + " and stream to map.");
         }
-        //
+        //这里创建监听器线程并启动，但是没有注册监听事件哦，所以当在zk上注册消费者时，刚启动的进程并没有执行监听事件哦
         //listener to consumer and partition changes
         ZKRebalancerListener<T> loadBalancerListener = new ZKRebalancerListener<T>(config.getGroupId(),
                 consumerIdString, ret);
         this.rebalancerListeners.add(loadBalancerListener);
         loadBalancerListener.start();
+        //zk上注册消费者
         registerConsumerInZK(dirs, consumerIdString, topicCount);
         //
         //register listener for session expired event
@@ -298,7 +287,6 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
             }
         }
     }
-
 
     public void commitOffsets() {
         if (zkClient == null) {
@@ -377,23 +365,45 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
         logger.info("Connected to zookeeper at " + config.getZkConnect());
     }
 
+    /**
+     * register consumer data in zookeeper
+     * <p>
+     * register path: /consumers/groupid/ids/groupid-consumerid <br>
+     * data: {topic:count,topic:count}
+     *
+     * @param zkGroupDirs      zookeeper group path
+     * @param consumerIdString groupid-consumerid
+     * @param topicCount       topic count
+     */
+    private void registerConsumerInZK(ZkGroupDirs zkGroupDirs, String consumerIdString, TopicCount topicCount) {
+        final String path = zkGroupDirs.consumerRegistryDir + "/" + consumerIdString;
+        final String data = topicCount.toJsonString();
+        logger.info(format("register consumer in zookeeper [%s] => [%s]", path, data));
+        ZkUtils.createEphemeralPathExpectConflict(zkClient, path, data);
+    }
+
+    class AutoCommitTask implements Runnable {
+
+        public void run() {
+            try {
+                commitOffsets();
+            } catch (Throwable e) {
+                logger.error("exception during autoCommit: ", e);
+            }
+        }
+    }
+
     class ZKRebalancerListener<T> implements IZkChildListener, Runnable, Closeable {
 
         final String group;
 
         final String consumerIdString;
-
+        private final ReentrantLock lock = new ReentrantLock();
+        private final Condition cond = lock.newCondition();
+        private final Thread watcherExecutorThread;
         Map<String, List<MessageStream<T>>> messagesStreams;
-
         //
         private boolean isWatcherTriggered = false;
-
-        private final ReentrantLock lock = new ReentrantLock();
-
-        private final Condition cond = lock.newCondition();
-
-        private final Thread watcherExecutorThread;
-
         private CountDownLatch shutDownLatch = new CountDownLatch(1);
 
         public ZKRebalancerListener(String group, String consumerIdString,
@@ -510,11 +520,14 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
         }
 
         private boolean rebalance(Cluster cluster) {
+            //本进程中，每个topic有多少线程在消费
             // map for current consumer: topic->[groupid-consumer-0,groupid-consumer-1,...,groupid-consumer-N]
             Map<String, Set<String>> myTopicThreadIdsMap = ZkUtils.getTopicCount(zkClient, group, consumerIdString)
                     .getConsumerThreadIdsPerTopic();
+            //所有进程中，每个topic有多少线程在消费
             // map for all consumers in this group: topic->[groupid-consumer1-0,...,groupid-consumerX-N]
             Map<String, List<String>> consumersPerTopicMap = ZkUtils.getConsumersPerTopic(zkClient, group);
+            //每个topic，有多少partition
             // map for all broker-partitions for the topics in this consumerid: topic->[brokerid0-partition0,...,brokeridN-partitionN]
             Map<String, List<String>> brokerPartitionsPerTopicMap = ZkUtils.getPartitionsForTopics(zkClient,
                     myTopicThreadIdsMap.keySet());
@@ -807,23 +820,6 @@ public class ZookeeperConsumerConnector implements ConsumerConnector {
 
         public void handleStateChanged(KeeperState state) throws Exception {
         }
-    }
-
-    /**
-     * register consumer data in zookeeper
-     * <p>
-     * register path: /consumers/groupid/ids/groupid-consumerid <br>
-     * data: {topic:count,topic:count}
-     *
-     * @param zkGroupDirs      zookeeper group path
-     * @param consumerIdString groupid-consumerid
-     * @param topicCount       topic count
-     */
-    private void registerConsumerInZK(ZkGroupDirs zkGroupDirs, String consumerIdString, TopicCount topicCount) {
-        final String path = zkGroupDirs.consumerRegistryDir + "/" + consumerIdString;
-        final String data = topicCount.toJsonString();
-        logger.info(format("register consumer in zookeeper [%s] => [%s]", path, data));
-        ZkUtils.createEphemeralPathExpectConflict(zkClient, path, data);
     }
 
 }
